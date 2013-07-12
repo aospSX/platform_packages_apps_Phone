@@ -909,6 +909,10 @@ public class InCallTouchUi extends FrameLayout
         mInCallScreen.updateIncomingCallWidgetHint(0, 0);
     }
 
+    public void onFinishFinalAnimation() {
+        // Not used
+    }
+
     /**
      * Apply an animation to hide the incoming call widget.
      */

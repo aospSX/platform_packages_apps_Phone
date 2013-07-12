@@ -460,7 +460,6 @@ public class EmergencyDialer extends Activity
         // There is no need to do anything with the wake lock.
         if (DBG) Log.d(LOG_TAG, "disabling status bar, set to long timeout");
         mStatusBarManager.disable(StatusBarManager.DISABLE_EXPAND);
-        mApp.setScreenTimeout(PhoneApp.ScreenTimeoutDuration.MEDIUM);
 
         updateDialAndDeleteButtonStateEnabledAttr();
     }
@@ -471,7 +470,6 @@ public class EmergencyDialer extends Activity
         // There is no need to do anything with the wake lock.
         if (DBG) Log.d(LOG_TAG, "reenabling status bar and closing the dialer");
         mStatusBarManager.disable(StatusBarManager.DISABLE_NONE);
-        mApp.setScreenTimeout(PhoneApp.ScreenTimeoutDuration.DEFAULT);
 
         super.onPause();
 

@@ -358,15 +358,6 @@ public class InCallScreen extends Activity
                     delayedCleanupAfterDisconnect();
                     break;
 
-                case ALLOW_SCREEN_ON:
-                    if (VDBG) log("ALLOW_SCREEN_ON message...");
-                    // Undo our previous call to preventScreenOn(true).
-                    // (Note this will cause the screen to turn on
-                    // immediately, if it's currently off because of a
-                    // prior preventScreenOn(true) call.)
-                    mApp.preventScreenOn(false);
-                    break;
-
                 case REQUEST_UPDATE_BLUETOOTH_INDICATION:
                     if (VDBG) log("REQUEST_UPDATE_BLUETOOTH_INDICATION...");
                     // The bluetooth headset state changed, so some UI
@@ -572,11 +563,6 @@ public class InCallScreen extends Activity
         final InCallUiState inCallUiState = mApp.inCallUiState;
         if (VDBG) inCallUiState.dumpState();
 
-        // Touch events are never considered "user activity" while the
-        // InCallScreen is active, so that unintentional touches won't
-        // prevent the device from going to sleep.
-        mApp.setIgnoreTouchUserActivity(true);
-
         // Disable the status bar "window shade" the entire time we're on
         // the in-call screen.
         mApp.notificationMgr.statusBarHelper.enableExpandedView(false);
@@ -724,43 +710,8 @@ public class InCallScreen extends Activity
         // InCallScreen is now active.
         EventLog.writeEvent(EventLogTags.PHONE_UI_ENTER);
 
-        // Update the poke lock and wake lock when we move to
-        // the foreground.
-        //
-        // But we need to do something special if we're coming
-        // to the foreground while an incoming call is ringing:
-        if (mCM.getState() == Phone.State.RINGING) {
-            // If the phone is ringing, we *should* already be holding a
-            // full wake lock (which we would have acquired before
-            // firing off the intent that brought us here; see
-            // CallNotifier.showIncomingCall().)
-            //
-            // We also called preventScreenOn(true) at that point, to
-            // avoid cosmetic glitches while we were being launched.
-            // So now we need to post an ALLOW_SCREEN_ON message to
-            // (eventually) undo the prior preventScreenOn(true) call.
-            //
-            // (In principle we shouldn't do this until after our first
-            // layout/draw pass.  But in practice, the delay caused by
-            // simply waiting for the end of the message queue is long
-            // enough to avoid any flickering of the lock screen before
-            // the InCallScreen comes up.)
-            if (VDBG) log("- posting ALLOW_SCREEN_ON message...");
-            mHandler.removeMessages(ALLOW_SCREEN_ON);
-            mHandler.sendEmptyMessage(ALLOW_SCREEN_ON);
-
-            // TODO: There ought to be a more elegant way of doing this,
-            // probably by having the PowerManager and ActivityManager
-            // work together to let apps request that the screen on/off
-            // state be synchronized with the Activity lifecycle.
-            // (See bug 1648751.)
-        } else {
-            // The phone isn't ringing; this is either an outgoing call, or
-            // we're returning to a call in progress.  There *shouldn't* be
-            // any prior preventScreenOn(true) call that we need to undo,
-            // but let's do this just to be safe:
-            mApp.preventScreenOn(false);
-        }
+        // Update the poke lock and wake lock when we move to the foreground.
+        // This will be no-op when prox sensor is effective.
         mApp.updateWakeState();
 
         // Restore the mute state if the last mute state change was NOT
@@ -858,17 +809,6 @@ public class InCallScreen extends Activity
         // of the InCallScreen, so we only care about them while we're in the
         // foreground.)
         unregisterReceiver(mReceiver);
-
-        // Re-enable "user activity" for touch events.
-        // We actually do this slightly *after* onPause(), to work around a
-        // race condition where a touch can come in after we've paused
-        // but before the device actually goes to sleep.
-        // TODO: The PowerManager itself should prevent this from happening.
-        mHandler.postDelayed(new Runnable() {
-                public void run() {
-                    mApp.setIgnoreTouchUserActivity(false);
-                }
-            }, 500);
 
         // Make sure we revert the poke lock and wake lock when we move to
         // the background.

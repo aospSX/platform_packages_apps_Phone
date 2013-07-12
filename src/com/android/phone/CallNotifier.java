@@ -518,8 +518,8 @@ public class CallNotifier extends Handler
         }
 
         // Incoming calls are totally ignored if the device isn't provisioned yet.
-        boolean provisioned = Settings.Secure.getInt(mApplication.getContentResolver(),
-            Settings.Secure.DEVICE_PROVISIONED, 0) != 0;
+        boolean provisioned = Settings.Global.getInt(mApplication.getContentResolver(),
+            Settings.Global.DEVICE_PROVISIONED, 0) != 0;
         if (!provisioned) {
             Log.i(LOG_TAG, "Ignoring incoming call: not provisioned");
             return true;
@@ -714,33 +714,6 @@ public class CallNotifier extends Handler
         // Go directly to the in-call screen.
         // (No need to do anything special if we're already on the in-call
         // screen; it'll notice the phone state change and update itself.)
-
-        // But first, grab a full wake lock.  We do this here, before we
-        // even fire off the InCallScreen intent, to make sure the
-        // ActivityManager doesn't try to pause the InCallScreen as soon
-        // as it comes up.  (See bug 1648751.)
-        //
-        // And since the InCallScreen isn't visible yet (we haven't even
-        // fired off the intent yet), we DON'T want the screen to actually
-        // come on right now.  So *before* acquiring the wake lock we need
-        // to call preventScreenOn(), which tells the PowerManager that
-        // the screen should stay off even if someone's holding a full
-        // wake lock.  (This prevents any flicker during the "incoming
-        // call" sequence.  The corresponding preventScreenOn(false) call
-        // will come from the InCallScreen when it's finally ready to be
-        // displayed.)
-        //
-        // TODO: this is all a temporary workaround.  The real fix is to add
-        // an Activity attribute saying "this Activity wants to wake up the
-        // phone when it's displayed"; that way the ActivityManager could
-        // manage the wake locks *and* arrange for the screen to come on at
-        // the exact moment that the InCallScreen is ready to be displayed.
-        // (See bug 1648751.)
-        //
-        // TODO: also, we should probably *not* do any of this if the
-        // screen is already on(!)
-
-        mApplication.preventScreenOn(true);
         mApplication.requestWakeState(PhoneApp.WakeState.FULL);
 
         // Post the "incoming call" notification *and* include the
@@ -810,7 +783,6 @@ public class CallNotifier extends Handler
             // if the call screen is showing, let it handle the event,
             // otherwise handle it here.
             if (!mApplication.isShowingCallScreen()) {
-                mApplication.setScreenTimeout(PhoneApp.ScreenTimeoutDuration.DEFAULT);
                 mApplication.requestWakeState(PhoneApp.WakeState.SLEEP);
             }
 
@@ -1121,6 +1093,7 @@ public class CallNotifier extends Handler
             }
         }
 
+        // All phone calls are disconnected.
         if (mCM.getState() == Phone.State.IDLE) {
             // Don't reset the audio mode or bluetooth/speakerphone state
             // if we still need to let the user hear a tone through the earpiece.
@@ -1130,18 +1103,6 @@ public class CallNotifier extends Handler
 
             mApplication.notificationMgr.cancelCallInProgressNotifications();
 
-            // If the InCallScreen is *not* in the foreground, forcibly
-            // dismiss it to make sure it won't still be in the activity
-            // history.  (But if it *is* in the foreground, don't mess
-            // with it; it needs to be visible, displaying the "Call
-            // ended" state.)
-            if (!mApplication.isShowingCallScreen()) {
-                if (VDBG) log("onDisconnect: force InCallScreen to finish()");
-                mApplication.dismissCallScreen();
-            } else {
-                if (VDBG) log("onDisconnect: In call screen. Set short timeout.");
-                mApplication.clearUserActivityTimeout();
-            }
         }
 
         if (c != null) {
@@ -1235,22 +1196,6 @@ public class CallNotifier extends Handler
                 // connection open for a few extra seconds so we can show the
                 // "busy" indication to the user.  We could stop the busy tone
                 // when *that* connection's "disconnect" event comes in.)
-            }
-
-            if (mCM.getState() == Phone.State.IDLE) {
-                // Release screen wake locks if the in-call screen is not
-                // showing. Otherwise, let the in-call screen handle this because
-                // it needs to show the call ended screen for a couple of
-                // seconds.
-                if (!mApplication.isShowingCallScreen()) {
-                    if (VDBG) log("- NOT showing in-call screen; releasing wake locks!");
-                    mApplication.setScreenTimeout(PhoneApp.ScreenTimeoutDuration.DEFAULT);
-                    mApplication.requestWakeState(PhoneApp.WakeState.SLEEP);
-                } else {
-                    if (VDBG) log("- still showing in-call screen; not releasing wake locks.");
-                }
-            } else {
-                if (VDBG) log("- phone still in use; not releasing wake locks.");
             }
 
             if (((mPreviousCdmaCallState == Call.State.DIALING)

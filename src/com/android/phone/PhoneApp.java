@@ -37,7 +37,6 @@ import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.IPowerManager;
-import android.os.LocalPowerManager;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.RemoteException;
@@ -46,6 +45,7 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.preference.PreferenceManager;
 import android.provider.Settings.System;
+import android.provider.Settings.Global;
 import android.telephony.ServiceState;
 import android.text.TextUtils;
 import android.util.Log;
@@ -192,6 +192,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
     private ScreenTimeoutDuration mScreenTimeoutDuration = ScreenTimeoutDuration.DEFAULT;
     private boolean mIgnoreTouchUserActivity = false;
     private IBinder mPokeLockToken = new Binder();
+    private PowerManager mPowerManager;
     private IPowerManager mPowerManagerService;
     private PowerManager.WakeLock mWakeLock;
     private PowerManager.WakeLock mPartialWakeLock;
@@ -461,18 +462,16 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
             ringer = Ringer.init(this);
 
             // before registering for phone state changes
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            mWakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK
-                    | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                    LOG_TAG);
+            mPowerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            mWakeLock = mPowerManager.newWakeLock(PowerManager.FULL_WAKE_LOCK, LOG_TAG);
             // lock used to keep the processor awake, when we don't care for the display.
-            mPartialWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK
+            mPartialWakeLock = mPowerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK
                     | PowerManager.ON_AFTER_RELEASE, LOG_TAG);
             // Wake lock used to control proximity sensor behavior.
-            if ((pm.getSupportedWakeLockFlags()
-                 & PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK) != 0x0) {
-                mProximityWakeLock =
-                        pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, LOG_TAG);
+            if (mPowerManager.isWakeLockLevelSupported(
+                   PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+                mProximityWakeLock = mPowerManager.newWakeLock(
+                        PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, LOG_TAG);
             }
             if (DBG) Log.d(LOG_TAG, "onCreate: mProximityWakeLock: " + mProximityWakeLock);
 
@@ -865,92 +864,6 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
     }
 
     /**
-     * Controls how quickly the screen times out.
-     *
-     * The poke lock controls how long it takes before the screen powers
-     * down, and therefore has no immediate effect when the current
-     * WakeState (see {@link PhoneApp#requestWakeState}) is FULL.
-     * If we're in a state where the screen *is* allowed to turn off,
-     * though, the poke lock will determine the timeout interval (long or
-     * short).
-     *
-     * @param shortPokeLock tells the device the timeout duration to use
-     * before going to sleep
-     * {@link com.android.server.PowerManagerService#SHORT_KEYLIGHT_DELAY}.
-     */
-    /* package */ void setScreenTimeout(ScreenTimeoutDuration duration) {
-        if (VDBG) Log.d(LOG_TAG, "setScreenTimeout(" + duration + ")...");
-
-        // make sure we don't set the poke lock repeatedly so that we
-        // avoid triggering the userActivity calls in
-        // PowerManagerService.setPokeLock().
-        if (duration == mScreenTimeoutDuration) {
-            return;
-        }
-        // stick with default timeout if we are using the proximity sensor
-        if (proximitySensorModeEnabled()) {
-            return;
-        }
-        mScreenTimeoutDuration = duration;
-        updatePokeLock();
-    }
-
-    /**
-     * Update the state of the poke lock held by the phone app,
-     * based on the current desired screen timeout and the
-     * current "ignore user activity on touch" flag.
-     */
-    private void updatePokeLock() {
-        // This is kind of convoluted, but the basic thing to remember is
-        // that the poke lock just sends a message to the screen to tell
-        // it to stay on for a while.
-        // The default is 0, for a long timeout and should be set that way
-        // when we are heading back into a the keyguard / screen off
-        // state, and also when we're trying to keep the screen alive
-        // while ringing.  We'll also want to ignore the cheek events
-        // regardless of the timeout duration.
-        // The short timeout is really used whenever we want to give up
-        // the screen lock, such as when we're in call.
-        int pokeLockSetting = 0;
-        switch (mScreenTimeoutDuration) {
-            case SHORT:
-                // Set the poke lock to timeout the display after a short
-                // timeout (5s). This ensures that the screen goes to sleep
-                // as soon as acceptably possible after we the wake lock
-                // has been released.
-                pokeLockSetting |= LocalPowerManager.POKE_LOCK_SHORT_TIMEOUT;
-                break;
-
-            case MEDIUM:
-                // Set the poke lock to timeout the display after a medium
-                // timeout (15s). This ensures that the screen goes to sleep
-                // as soon as acceptably possible after we the wake lock
-                // has been released.
-                pokeLockSetting |= LocalPowerManager.POKE_LOCK_MEDIUM_TIMEOUT;
-                break;
-
-            case DEFAULT:
-            default:
-                // set the poke lock to timeout the display after a long
-                // delay by default.
-                // TODO: it may be nice to be able to disable cheek presses
-                // for long poke locks (emergency dialer, for instance).
-                break;
-        }
-
-        if (mIgnoreTouchUserActivity) {
-            pokeLockSetting |= LocalPowerManager.POKE_LOCK_IGNORE_TOUCH_EVENTS;
-        }
-
-        // Send the request
-        try {
-            mPowerManagerService.setPokeLock(pokeLockSetting, mPokeLockToken, LOG_TAG);
-        } catch (RemoteException e) {
-            Log.w(LOG_TAG, "mPowerManagerService.setPokeLock() failed: " + e);
-        }
-    }
-
-    /**
      * Controls whether or not the screen is allowed to sleep.
      *
      * Once sleep is allowed (WakeState is SLEEP), it will rely on the
@@ -1004,11 +917,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
         synchronized (this) {
             if (mWakeState == WakeState.SLEEP) {
                 if (DBG) Log.d(LOG_TAG, "pulse screen lock");
-                try {
-                    mPowerManagerService.userActivityWithForce(SystemClock.uptimeMillis(), false, true);
-                } catch (RemoteException ex) {
-                    // Ignore -- the system process is dead.
-                }
+                mPowerManager.wakeUp(SystemClock.uptimeMillis());
             }
         }
     }
@@ -1058,27 +967,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
                        + ", speaker " + isSpeakerInUse + "...");
 
         //
-        // (1) Set the screen timeout.
-        //
-        // Note that the "screen timeout" value we determine here is
-        // meaningless if the screen is forced on (see (2) below.)
-        //
-
-        // Historical note: In froyo and earlier, we checked here for a special
-        // case: the in-call UI being active, the speaker off, and the DTMF dialpad
-        // not visible.  In that case, with no touchable UI onscreen at all (for
-        // non-prox-sensor devices at least), we could assume the user was probably
-        // holding the phone up to their face and *not* actually looking at the
-        // screen.  So we'd switch to a special screen timeout value
-        // (ScreenTimeoutDuration.MEDIUM), purely to save battery life.
-        //
-        // On current devices, we can rely on the proximity sensor to turn the
-        // screen off in this case, so we use the system-wide default timeout
-        // unconditionally.
-        setScreenTimeout(ScreenTimeoutDuration.DEFAULT);
-
-        //
-        // (2) Decide whether to force the screen on or not.
+        // Decide whether to force the screen on or not.
         //
         // Force the screen to be on if the phone is ringing or dialing,
         // or if we're displaying the "Call ended" UI for a connection in
@@ -1098,40 +987,6 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
     }
 
     /**
-     * Wrapper around the PowerManagerService.preventScreenOn() API.
-     * This allows the in-call UI to prevent the screen from turning on
-     * even if a subsequent call to updateWakeState() causes us to acquire
-     * a full wake lock.
-     */
-    /* package */ void preventScreenOn(boolean prevent) {
-        if (VDBG) Log.d(LOG_TAG, "- preventScreenOn(" + prevent + ")...");
-        try {
-            mPowerManagerService.preventScreenOn(prevent);
-        } catch (RemoteException e) {
-            Log.w(LOG_TAG, "mPowerManagerService.preventScreenOn() failed: " + e);
-        }
-    }
-
-    /**
-     * Sets or clears the flag that tells the PowerManager that touch
-     * (and cheek) events should NOT be considered "user activity".
-     *
-     * Since the in-call UI is totally insensitive to touch in most
-     * states, we set this flag whenever the InCallScreen is in the
-     * foreground.  (Otherwise, repeated unintentional touches could
-     * prevent the device from going to sleep.)
-     *
-     * There *are* some some touch events that really do count as user
-     * activity, though.  For those, we need to manually poke the
-     * PowerManager's userActivity method; see pokeUserActivity().
-     */
-    /* package */ void setIgnoreTouchUserActivity(boolean ignore) {
-        if (VDBG) Log.d(LOG_TAG, "setIgnoreTouchUserActivity(" + ignore + ")...");
-        mIgnoreTouchUserActivity = ignore;
-        updatePokeLock();
-    }
-
-    /**
      * Manually pokes the PowerManager's userActivity method.  Since we
      * hold the POKE_LOCK_IGNORE_TOUCH_EVENTS poke lock while
      * the InCallScreen is active, we need to do this for touch events
@@ -1140,11 +995,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
      */
     /* package */ void pokeUserActivity() {
         if (VDBG) Log.d(LOG_TAG, "pokeUserActivity()...");
-        try {
-            mPowerManagerService.userActivity(SystemClock.uptimeMillis(), false);
-        } catch (RemoteException e) {
-            Log.w(LOG_TAG, "mPowerManagerService.userActivity() failed: " + e);
-        }
+        mPowerManager.userActivity(SystemClock.uptimeMillis(), false);
     }
 
     /**
@@ -1441,8 +1292,8 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (action.equals(Intent.ACTION_AIRPLANE_MODE_CHANGED)) {
-                boolean enabled = System.getInt(getContentResolver(),
-                        System.AIRPLANE_MODE_ON, 0) == 0;
+                boolean enabled = Global.getInt(getContentResolver(),
+                        Global.AIRPLANE_MODE_ON, 0) == 0;
                 phone.setRadioPower(enabled);
             } else if (action.equals(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)) {
                 mBluetoothHeadsetState = intent.getIntExtra(BluetoothHeadset.EXTRA_STATE,
@@ -1716,15 +1567,6 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
                     + ar.exception);
         }
         phone.queryTTYMode(mHandler.obtainMessage(EVENT_TTY_MODE_GET));
-    }
-
-    /* package */ void clearUserActivityTimeout() {
-        try {
-            mPowerManagerService.clearUserActivityTimeout(SystemClock.uptimeMillis(),
-                    10*1000 /* 10 sec */);
-        } catch (RemoteException ex) {
-            // System process is dead.
-        }
     }
 
     /**

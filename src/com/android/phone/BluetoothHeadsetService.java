@@ -88,7 +88,7 @@ public class BluetoothHeadsetService extends Service {
         filter.addAction(BluetoothDevice.ACTION_UUID);
         registerReceiver(mBluetoothReceiver, filter);
 
-        IBinder b = ServiceManager.getService(BluetoothAdapter.BLUETOOTH_SERVICE);
+        IBinder b = ServiceManager.getService(BluetoothAdapter.BLUETOOTH_MANAGER_SERVICE);
         if (b == null) {
             throw new RuntimeException("Bluetooth service not available");
         }
