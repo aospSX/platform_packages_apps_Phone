@@ -21,11 +21,13 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.provider.Telephony.Intents;
+import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.Phone;
 import android.telephony.PhoneNumberUtils;
 import android.util.Log;
 import android.view.WindowManager;
+
+import com.android.internal.telephony.TelephonyCapabilities;
 
 /**
  * Helper class to listen for some magic dialpad character sequences
@@ -48,7 +50,7 @@ import android.view.WindowManager;
  * unify these two classes (in the framework? in a common shared library?)
  */
 public class SpecialCharSequenceMgr {
-    private static final String TAG = PhoneApp.LOG_TAG;
+    private static final String TAG = PhoneGlobals.LOG_TAG;
     private static final boolean DBG = false;
 
     private static final String MMI_IMEI_DISPLAY = "*#06#";
@@ -146,7 +148,7 @@ public class SpecialCharSequenceMgr {
         // Secret codes are in the form *#*#<code>#*#*
         int len = input.length();
         if (len > 8 && input.startsWith("*#*#") && input.endsWith("#*#*")) {
-            Intent intent = new Intent(Intents.SECRET_CODE_ACTION,
+            Intent intent = new Intent(TelephonyIntents.SECRET_CODE_ACTION,
                     Uri.parse("android_secret_code://" + input.substring(4, len - 4)));
             context.sendBroadcast(intent);
             return true;
@@ -162,7 +164,7 @@ public class SpecialCharSequenceMgr {
         // input.  We want to make sure that sim card contacts are NOT
         // exposed unless the phone is unlocked, and this code can be
         // accessed from the emergency dialer.
-        if (PhoneApp.getInstance().getKeyguardManager().inKeyguardRestrictedInputMode()) {
+        if (PhoneGlobals.getInstance().getKeyguardManager().inKeyguardRestrictedInputMode()) {
             return false;
         }
 
@@ -176,7 +178,7 @@ public class SpecialCharSequenceMgr {
                                     "com.android.phone.SimContacts");
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 intent.putExtra("index", index);
-                PhoneApp.getInstance().startActivity(intent);
+                PhoneGlobals.getInstance().startActivity(intent);
 
                 return true;
             } catch (NumberFormatException ex) {}
@@ -191,7 +193,7 @@ public class SpecialCharSequenceMgr {
         // if a dialstring is an MMI code.
         if ((input.startsWith("**04") || input.startsWith("**05"))
                 && input.endsWith("#")) {
-            PhoneApp app = PhoneApp.getInstance();
+            PhoneGlobals app = PhoneGlobals.getInstance();
             boolean isMMIHandled = app.phone.handlePinMmi(input);
 
             // if the PUK code is recognized then indicate to the
@@ -220,7 +222,7 @@ public class SpecialCharSequenceMgr {
     static private void showDeviceIdPanel(Context context) {
         if (DBG) log("showDeviceIdPanel()...");
 
-        Phone phone = PhoneApp.getPhone();
+        Phone phone = PhoneGlobals.getPhone();
         int labelId = TelephonyCapabilities.getDeviceIdLabel(phone);
         String deviceId = phone.getDeviceId();
 

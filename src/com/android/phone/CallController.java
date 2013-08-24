@@ -18,6 +18,8 @@ package com.android.phone;
 
 import com.android.internal.telephony.CallManager;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.TelephonyCapabilities;
 import com.android.phone.Constants.CallStatusCode;
 import com.android.phone.InCallUiState.InCallScreenMode;
 import com.android.phone.OtaUtils.CdmaOtaScreenState;
@@ -32,7 +34,6 @@ import android.telephony.ServiceState;
 import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
-
 
 /**
  * Phone app module in charge of "call control".
@@ -60,14 +61,14 @@ import android.widget.Toast;
 public class CallController extends Handler {
     private static final String TAG = "CallController";
     private static final boolean DBG =
-            (PhoneApp.DBG_LEVEL >= 1) && (SystemProperties.getInt("ro.debuggable", 0) == 1);
+            (PhoneGlobals.DBG_LEVEL >= 1) && (SystemProperties.getInt("ro.debuggable", 0) == 1);
     // Do not check in with VDBG = true, since that may write PII to the system log.
     private static final boolean VDBG = false;
 
     /** The singleton CallController instance. */
     private static CallController sInstance;
 
-    private PhoneApp mApp;
+    private PhoneGlobals mApp;
     private CallManager mCM;
 
     /** Helper object for emergency calls in some rare use cases.  Created lazily. */
@@ -99,7 +100,7 @@ public class CallController extends Handler {
      * PhoneApp's public "callController" field, which is why there's no
      * getInstance() method here.
      */
-    /* package */ static CallController init(PhoneApp app) {
+    /* package */ static CallController init(PhoneGlobals app) {
         synchronized (CallController.class) {
             if (sInstance == null) {
                 sInstance = new CallController(app);
@@ -114,7 +115,7 @@ public class CallController extends Handler {
      * Private constructor (this is a singleton).
      * @see init()
      */
-    private CallController(PhoneApp app) {
+    private CallController(PhoneGlobals app) {
         if (DBG) log("CallController constructor: app = " + app);
         mApp = app;
         mCM = app.mCM;
@@ -167,7 +168,7 @@ public class CallController extends Handler {
      *      (2) as the "intent" parameter.
      *
      *  (4) Here in CallController.placeCall() we read the phone number or SIP
-     *      address out of the intent and actually initate the call, and
+     *      address out of the intent and actually initiate the call, and
      *      simultaneously launch the InCallScreen to display the in-call UI.
      *
      *  (5) We handle various errors by directing the InCallScreen to
@@ -243,9 +244,9 @@ public class CallController extends Handler {
         // overlay and route the call.  The overlay will be
         // displayed when the InCallScreen becomes visible.
         if (PhoneUtils.hasPhoneProviderExtras(intent)) {
-            inCallUiState.setProviderOverlayInfo(intent);
+            inCallUiState.setProviderInfo(intent);
         } else {
-            inCallUiState.clearProviderOverlayInfo();
+            inCallUiState.clearProviderInfo();
         }
 
         CallStatusCode status = placeCallInternal(intent);
@@ -305,9 +306,6 @@ public class CallController extends Handler {
         //   and if so simply call updateInCallScreen() instead.
 
         mApp.displayCallScreen();
-
-        // enable noise suppression
-        PhoneUtils.turnOnNoiseSuppression(mApp.getApplicationContext(), true);
     }
 
     /**
@@ -330,6 +328,8 @@ public class CallController extends Handler {
         // manageable chunks.
 
         final InCallUiState inCallUiState = mApp.inCallUiState;
+        final Uri uri = intent.getData();
+        final String scheme = (uri != null) ? uri.getScheme() : null;
         String number;
         Phone phone = null;
 
@@ -346,7 +346,7 @@ public class CallController extends Handler {
         //   around *only* the call that can throw that exception.
 
         try {
-            number = getInitialNumber(intent);
+            number = PhoneUtils.getInitialNumber(intent);
             if (VDBG) log("- actual number to dial: '" + number + "'");
 
             // find the phone first
@@ -355,8 +355,6 @@ public class CallController extends Handler {
             // or by number, i.e. for international,
             // or by user selection, i.e., dialog query,
             // or any of combinations
-            Uri uri = intent.getData();
-            String scheme = (uri != null) ? uri.getScheme() : null;
             String sipPhoneUri = intent.getStringExtra(
                     OutgoingCallBroadcaster.EXTRA_SIP_PHONE_URI);
             phone = PhoneUtils.pickPhoneBasedOnNumber(mCM, scheme, number, sipPhoneUri);
@@ -499,11 +497,19 @@ public class CallController extends Handler {
                             CdmaOtaScreenState.OtaScreenState.OTA_STATUS_LISTENING;
                 }
 
-                // Any time we initiate a call, force the DTMF dialpad to
-                // close.  (We want to make sure the user can see the regular
+                boolean voicemailUriSpecified = scheme != null && scheme.equals("voicemail");
+                // When voicemail is requested most likely the user wants to open
+                // dialpad immediately, so we show it in the first place.
+                // Otherwise we want to make sure the user can see the regular
                 // in-call UI while the new call is dialing, and when it
                 // first gets connected.)
-                inCallUiState.showDialpad = false;
+                inCallUiState.showDialpad = voicemailUriSpecified;
+
+                // For voicemails, we add context text to let the user know they
+                // are dialing their voicemail.
+                // TODO: This is only set here and becomes problematic when swapping calls
+                inCallUiState.dialpadContextText = voicemailUriSpecified ?
+                    phone.getVoiceMailAlphaTag() : "";
 
                 // Also, in case a previous call was already active (i.e. if
                 // we just did "Add call"), clear out the "history" of DTMF
@@ -528,7 +534,7 @@ public class CallController extends Handler {
                     exitedEcm = true;  // this will cause us to return EXITED_ECM from this method
                 }
 
-                if (phone.getPhoneType() == Phone.PHONE_TYPE_CDMA) {
+                if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA) {
                     // Start the timer for 3 Way CallerInfo
                     if (mApp.cdmaPhoneCallState.getCurrentCallState()
                             == CdmaPhoneCallState.PhoneCallState.THRWAY_ACTIVE) {
@@ -628,53 +634,7 @@ public class CallController extends Handler {
         }
     }
 
-    /**
-     * Given an Intent (which is presumably the ACTION_CALL intent that
-     * initiated this outgoing call), figure out the actual phone number we
-     * should dial.
-     *
-     * Note that the returned "number" may actually be a SIP address,
-     * if the specified intent contains a sip: URI.
-     *
-     * This method is basically a wrapper around PhoneUtils.getNumberFromIntent(),
-     * except it's also aware of the EXTRA_ACTUAL_NUMBER_TO_DIAL extra.
-     * (That extra, if present, tells us the exact string to pass down to the
-     * telephony layer.  It's guaranteed to be safe to dial: it's either a PSTN
-     * phone number with separators and keypad letters stripped out, or a raw
-     * unencoded SIP address.)
-     *
-     * @return the phone number corresponding to the specified Intent, or null
-     *   if the Intent has no action or if the intent's data is malformed or
-     *   missing.
-     *
-     * @throws VoiceMailNumberMissingException if the intent
-     *   contains a "voicemail" URI, but there's no voicemail
-     *   number configured on the device.
-     */
-    // TODO: Consider moving this out to PhoneUtils and/or combining it
-    // with PhoneUtils.getNumberFromIntent().
-    public static String getInitialNumber(Intent intent)
-            throws PhoneUtils.VoiceMailNumberMissingException {
-        if (VDBG) log("getInitialNumber(): " + intent);
 
-        String action = intent.getAction();
-        if (TextUtils.isEmpty(action)) {
-            return null;
-        }
-
-        // If the EXTRA_ACTUAL_NUMBER_TO_DIAL extra is present, get the phone
-        // number from there.  (That extra takes precedence over the actual data
-        // included in the intent.)
-        if (intent.hasExtra(OutgoingCallBroadcaster.EXTRA_ACTUAL_NUMBER_TO_DIAL)) {
-            String actualNumberToDial =
-                    intent.getStringExtra(OutgoingCallBroadcaster.EXTRA_ACTUAL_NUMBER_TO_DIAL);
-            if (VDBG) log("==> got EXTRA_ACTUAL_NUMBER_TO_DIAL; returning '"
-                          + actualNumberToDial + "'");
-            return actualNumberToDial;
-        }
-
-        return PhoneUtils.getNumberFromIntent(PhoneApp.getInstance(), intent);
-    }
 
     /**
      * Handles the various error conditions that can occur when initiating
@@ -760,7 +720,7 @@ public class CallController extends Handler {
                 // TODO: Rather than launching a toast from here, it would
                 // be cleaner to just set a pending call status code here,
                 // and then let the InCallScreen display the toast...
-                if (mCM.getState() == Phone.State.OFFHOOK) {
+                if (mCM.getState() == PhoneConstants.State.OFFHOOK) {
                     Toast.makeText(mApp, R.string.incall_status_dialed_mmi, Toast.LENGTH_SHORT)
                             .show();
                 }

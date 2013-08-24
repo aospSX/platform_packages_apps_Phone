@@ -18,6 +18,7 @@ package com.android.phone.sip;
 
 import com.android.internal.telephony.CallManager;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
 import com.android.phone.R;
 import com.android.phone.SipUtil;
 
@@ -68,6 +69,7 @@ public class SipEditor extends PreferenceActivity
     private boolean mDisplayNameSet;
     private boolean mHomeButtonClicked;
     private boolean mUpdateRequired;
+    private boolean mUpdatedFieldIsEmpty;
 
     private SipManager mSipManager;
     private SipProfileDb mProfileDb;
@@ -141,7 +143,7 @@ public class SipEditor extends PreferenceActivity
     public void onResume() {
         super.onResume();
         mHomeButtonClicked = false;
-        if (mCallManager.getState() != Phone.State.IDLE) {
+        if (mCallManager.getState() != PhoneConstants.State.IDLE) {
             mAdvancedSettings.show();
             getPreferenceScreen().setEnabled(false);
             if (mRemoveButton != null) mRemoveButton.setEnabled(false);
@@ -181,12 +183,6 @@ public class SipEditor extends PreferenceActivity
         mPrimaryAccountSelector = new PrimaryAccountSelector(p);
 
         loadPreferencesFromProfile(p);
-
-        ActionBar actionBar = getActionBar();
-        if (actionBar != null) {
-            // android.R.id.home will be triggered in onOptionsItemSelected()
-            actionBar.setDisplayHomeAsUpEnabled(true);
-        }
     }
 
     @Override
@@ -202,10 +198,10 @@ public class SipEditor extends PreferenceActivity
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         super.onCreateOptionsMenu(menu);
+        menu.add(0, MENU_DISCARD, 0, R.string.sip_menu_discard)
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
         menu.add(0, MENU_SAVE, 0, R.string.sip_menu_save)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-        menu.add(0, MENU_DISCARD, 0, R.string.sip_menu_discard)
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         menu.add(0, MENU_REMOVE, 0, R.string.remove_sip_account)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         return true;
@@ -215,14 +211,13 @@ public class SipEditor extends PreferenceActivity
     public boolean onPrepareOptionsMenu(Menu menu) {
         MenuItem removeMenu = menu.findItem(MENU_REMOVE);
         removeMenu.setVisible(mOldProfile != null);
+        menu.findItem(MENU_SAVE).setEnabled(mUpdateRequired);
         return super.onPrepareOptionsMenu(menu);
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
-            case android.R.id.home: // See ActionBar#setDisplayHomeAsUpEnabled()
-                // This time just work as "back" or "save" capability.
             case MENU_SAVE:
                 validateAndSetResult();
                 return true;
@@ -298,6 +293,7 @@ public class SipEditor extends PreferenceActivity
             return;
         }
         runOnUiThread(new Runnable() {
+            @Override
             public void run() {
                 new AlertDialog.Builder(SipEditor.this)
                         .setTitle(android.R.string.dialog_alert_title)
@@ -441,7 +437,10 @@ public class SipEditor extends PreferenceActivity
                 unregisterProfile(mOldProfile.getUriString());
             }
         }
-        if (pref instanceof CheckBoxPreference) return true;
+        if (pref instanceof CheckBoxPreference) {
+            invalidateOptionsMenu();
+            return true;
+        }
         String value = (newValue == null) ? "" : newValue.toString();
         if (TextUtils.isEmpty(value)) {
             pref.setSummary(getPreferenceKey(pref).defaultSummary);
@@ -455,6 +454,9 @@ public class SipEditor extends PreferenceActivity
             ((EditTextPreference) pref).setText(value);
             checkIfDisplayNameSet();
         }
+
+        // SAVE menu should be enabled once the user modified some preference.
+        invalidateOptionsMenu();
         return true;
     }
 

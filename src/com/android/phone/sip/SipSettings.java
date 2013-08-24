@@ -18,6 +18,7 @@ package com.android.phone.sip;
 
 import com.android.internal.telephony.CallManager;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
 import com.android.phone.CallFeaturesSetting;
 import com.android.phone.R;
 import com.android.phone.SipUtil;
@@ -46,7 +47,6 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.Button;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -168,7 +168,7 @@ public class SipSettings extends PreferenceActivity {
     public void onResume() {
         super.onResume();
 
-        if (mCallManager.getState() != Phone.State.IDLE) {
+        if (mCallManager.getState() != PhoneConstants.State.IDLE) {
             mButtonSipReceiveCalls.setEnabled(false);
         } else {
             mButtonSipReceiveCalls.setEnabled(true);
@@ -186,23 +186,25 @@ public class SipSettings extends PreferenceActivity {
             final Intent intent) {
         if (resultCode != RESULT_OK && resultCode != RESULT_FIRST_USER) return;
         new Thread() {
+            @Override
             public void run() {
-            try {
-                if (mProfile != null) {
-                    Log.v(TAG, "Removed Profile:" + mProfile.getProfileName());
-                    deleteProfile(mProfile);
-                }
+                try {
+                    if (mProfile != null) {
+                        Log.v(TAG, "Removed Profile:" + mProfile.getProfileName());
+                        deleteProfile(mProfile);
+                    }
 
-                SipProfile profile = intent.getParcelableExtra(KEY_SIP_PROFILE);
-                if (resultCode == RESULT_OK) {
-                    Log.v(TAG, "New Profile Name:" + profile.getProfileName());
-                    addProfile(profile);
+                    SipProfile profile = intent.getParcelableExtra(KEY_SIP_PROFILE);
+                    if (resultCode == RESULT_OK) {
+                        Log.v(TAG, "New Profile Name:" + profile.getProfileName());
+                        addProfile(profile);
+                    }
+                    updateProfilesStatus();
+                } catch (IOException e) {
+                    Log.v(TAG, "Can not handle the profile : " + e.getMessage());
                 }
-                updateProfilesStatus();
-            } catch (IOException e) {
-                Log.v(TAG, "Can not handle the profile : " + e.getMessage());
             }
-        }}.start();
+        }.start();
     }
 
     private void registerForReceiveCallsCheckBox() {
@@ -265,6 +267,7 @@ public class SipSettings extends PreferenceActivity {
 
     private void updateProfilesStatus() {
         new Thread(new Runnable() {
+            @Override
             public void run() {
                 try {
                     retrieveSipLists();
@@ -288,6 +291,7 @@ public class SipSettings extends PreferenceActivity {
         mSipProfileList = mProfileDb.retrieveSipProfileList();
         processActiveProfilesFromSipService();
         Collections.sort(mSipProfileList, new Comparator<SipProfile>() {
+            @Override
             public int compare(SipProfile p1, SipProfile p2) {
                 return getProfileName(p1).compareTo(getProfileName(p2));
             }
@@ -345,6 +349,7 @@ public class SipSettings extends PreferenceActivity {
 
         pref.setOnPreferenceClickListener(
                 new Preference.OnPreferenceClickListener() {
+                    @Override
                     public boolean onPreferenceClick(Preference pref) {
                         handleProfileClick(((SipPreference) pref).mProfile);
                         return true;
@@ -363,6 +368,7 @@ public class SipSettings extends PreferenceActivity {
                 .setIconAttribute(android.R.attr.alertDialogIcon)
                 .setPositiveButton(R.string.close_profile,
                         new DialogInterface.OnClickListener() {
+                            @Override
                             public void onClick(DialogInterface dialog, int w) {
                                 deleteProfile(profile);
                                 unregisterProfile(profile);
@@ -375,6 +381,7 @@ public class SipSettings extends PreferenceActivity {
     private void unregisterProfile(final SipProfile p) {
         // run it on background thread for better UI response
         new Thread(new Runnable() {
+            @Override
             public void run() {
                 try {
                     mSipManager.close(p.getUriString());
@@ -412,6 +419,7 @@ public class SipSettings extends PreferenceActivity {
     private void showRegistrationMessage(final String profileUri,
             final String message) {
         runOnUiThread(new Runnable() {
+            @Override
             public void run() {
                 SipPreference pref = mSipPreferenceMap.get(profileUri);
                 if (pref != null) {
@@ -423,16 +431,19 @@ public class SipSettings extends PreferenceActivity {
 
     private SipRegistrationListener createRegistrationListener() {
         return new SipRegistrationListener() {
+            @Override
             public void onRegistrationDone(String profileUri, long expiryTime) {
                 showRegistrationMessage(profileUri, getString(
                         R.string.registration_status_done));
             }
 
+            @Override
             public void onRegistering(String profileUri) {
                 showRegistrationMessage(profileUri, getString(
                         R.string.registration_status_registering));
             }
 
+            @Override
             public void onRegistrationFailed(String profileUri, int errorCode,
                     String message) {
                 switch (errorCode) {
@@ -480,7 +491,8 @@ public class SipSettings extends PreferenceActivity {
 
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
-        menu.findItem(MENU_ADD_ACCOUNT).setEnabled(mCallManager.getState() == Phone.State.IDLE);
+        menu.findItem(MENU_ADD_ACCOUNT).setEnabled(
+                mCallManager.getState() == PhoneConstants.State.IDLE);
         return super.onPrepareOptionsMenu(menu);
     }
 

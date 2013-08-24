@@ -8,25 +8,20 @@ import android.preference.PreferenceScreen;
 import android.util.Log;
 import android.view.MenuItem;
 
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneFactory;
-
 import java.util.ArrayList;
 
 public class GsmUmtsAdditionalCallOptions extends
         TimeConsumingPreferenceActivity {
     private static final String LOG_TAG = "GsmUmtsAdditionalCallOptions";
-    private final boolean DBG = (PhoneApp.DBG_LEVEL >= 2);
+    private final boolean DBG = (PhoneGlobals.DBG_LEVEL >= 2);
 
     private static final String BUTTON_CLIR_KEY  = "button_clir_key";
     private static final String BUTTON_CW_KEY    = "button_cw_key";
-    private static final String BUTTON_PN_KEY    = "button_pn_key";
 
     private CLIRListPreference mCLIRButton;
     private CallWaitingCheckBoxPreference mCWButton;
-    private MSISDNEditPreference mMSISDNButton;
 
-    private ArrayList<Preference> mPreferences = new ArrayList<Preference> ();
+    private final ArrayList<Preference> mPreferences = new ArrayList<Preference>();
     private int mInitIndex= 0;
 
     @Override
@@ -38,11 +33,9 @@ public class GsmUmtsAdditionalCallOptions extends
         PreferenceScreen prefSet = getPreferenceScreen();
         mCLIRButton = (CLIRListPreference) prefSet.findPreference(BUTTON_CLIR_KEY);
         mCWButton = (CallWaitingCheckBoxPreference) prefSet.findPreference(BUTTON_CW_KEY);
-        mMSISDNButton = (MSISDNEditPreference) prefSet.findPreference(BUTTON_PN_KEY);
 
         mPreferences.add(mCLIRButton);
         mPreferences.add(mCWButton);
-        mPreferences.add(mMSISDNButton);
 
         if (icicle == null) {
             if (DBG) Log.d(LOG_TAG, "start to init ");
@@ -52,8 +45,6 @@ public class GsmUmtsAdditionalCallOptions extends
             mInitIndex = mPreferences.size();
             mCLIRButton.init(this, true);
             mCWButton.init(this, true);
-            mMSISDNButton.init(this, true);
-
             int[] clirArray = icicle.getIntArray(mCLIRButton.getKey());
             if (clirArray != null) {
                 if (DBG) Log.d(LOG_TAG, "onCreate:  clirArray[0]="
@@ -87,8 +78,6 @@ public class GsmUmtsAdditionalCallOptions extends
             Preference pref = mPreferences.get(mInitIndex);
             if (pref instanceof CallWaitingCheckBoxPreference) {
                 ((CallWaitingCheckBoxPreference) pref).init(this, false);
-            } else if (pref instanceof MSISDNEditPreference) {
-                ((MSISDNEditPreference) pref).init(this, false);
             }
         }
         super.onFinished(preference, reading);

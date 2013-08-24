@@ -219,7 +219,7 @@ public class NetworkSetting extends PreferenceActivity
 
         addPreferencesFromResource(R.xml.carrier_select);
 
-        mPhone = PhoneApp.getPhone();
+        mPhone = PhoneGlobals.getPhone();
 
         mNetworkList = (PreferenceGroup) getPreferenceScreen().findPreference(LIST_NETWORKS_KEY);
         mNetworkMap = new HashMap<Preference, OperatorInfo>();
@@ -287,7 +287,7 @@ public class NetworkSetting extends PreferenceActivity
                 default:
                     // reinstate the cancelablity of the dialog.
                     dialog.setMessage(getResources().getString(R.string.load_networks_progress));
-                    dialog.setCanceledOnTouchOutside(false);
+                    dialog.setCancelable(true);
                     dialog.setOnCancelListener(this);
                     break;
             }
@@ -322,7 +322,7 @@ public class NetworkSetting extends PreferenceActivity
     private void displayNetworkQueryFailed(int error) {
         String status = getResources().getString(R.string.network_query_error);
 
-        final PhoneApp app = PhoneApp.getInstance();
+        final PhoneGlobals app = PhoneGlobals.getInstance();
         app.notificationMgr.postTransientNotification(
                 NotificationMgr.NETWORK_SELECTION_NOTIFICATION, status);
     }
@@ -339,7 +339,7 @@ public class NetworkSetting extends PreferenceActivity
             status = getResources().getString(R.string.connect_later);
         }
 
-        final PhoneApp app = PhoneApp.getInstance();
+        final PhoneGlobals app = PhoneGlobals.getInstance();
         app.notificationMgr.postTransientNotification(
                 NotificationMgr.NETWORK_SELECTION_NOTIFICATION, status);
     }
@@ -347,7 +347,7 @@ public class NetworkSetting extends PreferenceActivity
     private void displayNetworkSelectionSucceeded() {
         String status = getResources().getString(R.string.registration_done);
 
-        final PhoneApp app = PhoneApp.getInstance();
+        final PhoneGlobals app = PhoneGlobals.getInstance();
         app.notificationMgr.postTransientNotification(
                 NotificationMgr.NETWORK_SELECTION_NOTIFICATION, status);
 
@@ -387,10 +387,8 @@ public class NetworkSetting extends PreferenceActivity
         // update the state of the preferences.
         if (DBG) log("hideProgressPanel");
 
-        try {
+        if (mIsForeground) {
             dismissDialog(DIALOG_NETWORK_LIST_LOAD);
-        } catch (IllegalArgumentException e){
-            if (DBG) log(" DIALOG_NETWORK_LIST_LOAD dismissed already");
         }
 
         getPreferenceScreen().setEnabled(true);

@@ -31,6 +31,7 @@ import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.TelephonyCapabilities;
 
 import android.util.Log;
 
@@ -41,7 +42,7 @@ import android.util.Log;
  */
 public class OtaStartupReceiver extends BroadcastReceiver {
     private static final String TAG = "OtaStartupReceiver";
-    private static final boolean DBG = true;
+    private static final boolean DBG = false;
     private static final int MIN_READY = 10;
     private static final int SERVICE_STATE_CHANGED = 11;
     private Context mContext;
@@ -85,7 +86,7 @@ public class OtaStartupReceiver extends BroadcastReceiver {
                     // it's finally OK to start OTA provisioning
                     if (state.getState() == ServiceState.STATE_IN_SERVICE) {
                         if (DBG) Log.d(TAG, "call OtaUtils.maybeDoOtaCall after network is available");
-                        Phone phone = PhoneApp.getPhone();
+                        Phone phone = PhoneGlobals.getPhone();
                         phone.unregisterForServiceStateChanged(this);
                         OtaUtils.maybeDoOtaCall(mContext, mHandler, MIN_READY);
                     }
@@ -104,7 +105,13 @@ public class OtaStartupReceiver extends BroadcastReceiver {
                     "  mOtaspMode=" + mOtaspMode);
         }
 
-        if (!TelephonyCapabilities.supportsOtasp(PhoneApp.getPhone())) {
+        PhoneGlobals globals = PhoneGlobals.getInstanceIfPrimary();
+        if (globals == null) {
+            if (DBG) Log.d(TAG, "Not primary user, nothing to do.");
+            return;
+        }
+
+        if (!TelephonyCapabilities.supportsOtasp(PhoneGlobals.getPhone())) {
             if (DBG) Log.d(TAG, "OTASP not supported, nothing to do.");
             return;
         }
@@ -125,8 +132,8 @@ public class OtaStartupReceiver extends BroadcastReceiver {
         }
 
         // Delay OTA provisioning if network is not available yet
-        PhoneApp app = PhoneApp.getInstance();
-        Phone phone = PhoneApp.getPhone();
+        PhoneGlobals app = PhoneGlobals.getInstance();
+        Phone phone = PhoneGlobals.getPhone();
         if (app.mCM.getServiceState() != ServiceState.STATE_IN_SERVICE) {
             if (DBG) Log.w(TAG, "Network is not ready. Registering to receive notification.");
             phone.registerForServiceStateChanged(mHandler, SERVICE_STATE_CHANGED, null);
@@ -139,30 +146,30 @@ public class OtaStartupReceiver extends BroadcastReceiver {
         if (DBG) Log.d(TAG, "call OtaUtils.maybeDoOtaCall");
         OtaUtils.maybeDoOtaCall(mContext, mHandler, MIN_READY);
     }
-    
+
     /**
-     * On devices that provide a phone initialization wizard (such as Google Setup Wizard), we 
+     * On devices that provide a phone initialization wizard (such as Google Setup Wizard), we
      * allow delaying CDMA OTA setup so it can be done in a single wizard. The wizard is responsible
-     * for (1) disabling itself once it has been run and/or (2) setting the 'device_provisioned' 
+     * for (1) disabling itself once it has been run and/or (2) setting the 'device_provisioned'
      * flag to something non-zero and (3) calling the OTA Setup with the action below.
-     * 
+     *
      * NB: Typical phone initialization wizards will install themselves as the homescreen
-     * (category "android.intent.category.HOME") with a priority higher than the default.  
+     * (category "android.intent.category.HOME") with a priority higher than the default.
      * The wizard should set 'device_provisioned' when it completes, disable itself with the
      * PackageManager.setComponentEnabledSetting() and then start home screen.
-     * 
+     *
      * @return true if setup will be handled by wizard, false if it should be done now.
      */
     private boolean shouldPostpone(Context context) {
         Intent intent = new Intent("android.intent.action.DEVICE_INITIALIZATION_WIZARD");
-        ResolveInfo resolveInfo = context.getPackageManager().resolveActivity(intent, 
+        ResolveInfo resolveInfo = context.getPackageManager().resolveActivity(intent,
                 PackageManager.MATCH_DEFAULT_ONLY);
         boolean provisioned = Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.DEVICE_PROVISIONED, 0) != 0;
         String mode = SystemProperties.get("ro.setupwizard.mode", "REQUIRED");
         boolean runningSetupWizard = "REQUIRED".equals(mode) || "OPTIONAL".equals(mode);
         if (DBG) {
-            Log.v(TAG, "resolvInfo = " + resolveInfo + ", provisioned = " + provisioned 
+            Log.v(TAG, "resolvInfo = " + resolveInfo + ", provisioned = " + provisioned
                     + ", runningSetupWizard = " + runningSetupWizard);
         }
         return resolveInfo != null && !provisioned && runningSetupWizard;
